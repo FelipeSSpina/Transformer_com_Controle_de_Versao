@@ -3,7 +3,9 @@ Transformer PT→EN (TensorFlow / Keras)
 
 O que é este repositório
 ------------------------
-Eu segui **o tutorial oficial do TensorFlow** para treinar um **Transformer Encoder–Decoder** de tradução **Português → Inglês** usando o dataset **TED HRLR** via TFDS. Versionei todo o trabalho no **GitHub** com commits claros, escrevi este **README em primeira pessoa** com uma **análise honesta** do que funcionou bem e do que poderia melhorar, e fiz uma **avaliação de treinamento em GPU e CPU** (comparativa e metodológica).
+Eu peguei o **tutorial oficial do TensorFlow** de tradução **Português → Inglês** com **Transformer** e fui até o fim, rodando o **notebook** ponta a ponta, entendendo cada bloco e tomando notas do que observei no treino e na inferência. No processo, conferi a preparação do dataset **TED HRLR** no TFDS, validei o carregamento dos **tokenizers** (SavedModel), acompanhei as curvas de **loss** e **accuracy mascarada**, salvei **checkpoints**, exportei o **SavedModel** de inferência e comparei execuções em **GPU** e **CPU** (do ponto de vista de tempo e custo, sem reinventar o caderno).
+
+O objetivo aqui não é “criar um modelo novo”, e sim **reproduzir fielmente o tutorial**, documentar o que aconteceu **na prática** (inclusive pequenas pegadinhas como compatibilidade de versões e caminhos do tokenizer), e **contar o que aprendi**: onde o treinamento estabiliza, o que muda quando alterno GPU↔CPU, o que eu mediria para ter qualidade real (ex.: **SacreBLEU**), e quais próximos passos eu faria para sair do baseline (ex.: **beam search**). Tudo isso foi versionado no **GitHub** em commits claros, e este README é a minha visão em primeira pessoa do que deu certo, do que doeu e do que eu recomendo.
 
 Links de referência diretos:
 - Tutorial (PT-BR): https://www.tensorflow.org/text/tutorials/transformer?hl=pt-br
@@ -107,6 +109,15 @@ Percepções pessoais — pontos negativos
 - **Carregamento do tokenizer** via ZIP: em alguns ambientes, o caminho de extração do `saved_model.pb` precisa ser verificado manualmente.
 - **Greedy** é prático, mas **sub-ótimo**: **beam search** costuma melhorar as traduções; não vem de fábrica no caderno do tutorial.
 - **Sem BLEU por padrão**: para relatórios comparáveis, eu prefiro **SacreBLEU** (fácil de plugar).
+
+Notas rápidas da análise (extra)
+--------------------------------
+    Tópico/Surpresa                | Minha leitura                        | O que eu faria
+    -------------------------------+--------------------------------------+------------------------------------------
+    Acurácia “mascarada” sobe bem  | Scheduler + máscaras estabilizam     | Medir BLEU p/ ver ganho “de verdade”
+    Tempo/época quase constante    | Pipeline tf.data está eficiente      | Registrar tempo/step p/ comparar HW
+    Traduções com OOVs razoáveis   | Subpalavras ajudam transliteração    | Beam search p/ escolhas menos “gulosas”
+    Diferença CPU×GPU marcante     | Atenção paralelizável + T4 ajuda     | Mixed precision sempre que suportado
 
 O que eu faria em seguida (se for evoluir)
 ------------------------------------------
