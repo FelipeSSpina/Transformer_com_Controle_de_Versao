@@ -1,146 +1,191 @@
-Transformer PT→EN (TensorFlow / Keras)
-======================================
+# Transformer PT→EN (TensorFlow / Keras)
 
-O que é este repositório
-------------------------
-Eu peguei o **tutorial oficial do TensorFlow** de tradução **Português → Inglês** com **Transformer** e fui até o fim, rodando o **notebook** ponta a ponta, entendendo cada bloco e tomando notas do que observei no treino e na inferência. No processo, conferi a preparação do dataset **TED HRLR** no TFDS, validei o carregamento dos **tokenizers** (SavedModel), acompanhei as curvas de **loss** e **accuracy mascarada**, salvei **checkpoints**, exportei o **SavedModel** de inferência e comparei execuções em **GPU** e **CPU** (do ponto de vista de tempo e custo, sem reinventar o caderno).
+Este repositório reproduz, de ponta a ponta, o tutorial oficial do TensorFlow para tradução Português → Inglês com a arquitetura Transformer. O objetivo foi entender a implementação do zero em Keras, treinar e inspecionar o modelo, comparar CPU × GPU com um protocolo consistente e registrar métricas, gráficos e percepções técnicas. Todo o processo foi versionado com commits significativos.
 
-O objetivo aqui não é “criar um modelo novo”, e sim **reproduzir fielmente o tutorial**, documentar o que aconteceu **na prática** (inclusive pequenas pegadinhas como compatibilidade de versões e caminhos do tokenizer), e **contar o que aprendi**: onde o treinamento estabiliza, o que muda quando alterno GPU↔CPU, o que eu mediria para ter qualidade real (ex.: **SacreBLEU**), e quais próximos passos eu faria para sair do baseline (ex.: **beam search**). Tudo isso foi versionado no **GitHub** em commits claros, e este README é a minha visão em primeira pessoa do que deu certo, do que doeu e do que eu recomendo.
-
-Links de referência diretos:
+Links diretos
 - Tutorial (PT-BR): https://www.tensorflow.org/text/tutorials/transformer?hl=pt-br
 - Paper: Vaswani et al., 2017 — “Attention Is All You Need”
 
-O que eu implementei (em alto nível)
-------------------------------------
-- **Dados e tokenização**
-  - Carreguei o **TFDS** `ted_hrlr_translate/pt_to_en`.
-  - Usei os **tokenizers de subpalavras** (pt/en) do próprio tutorial, publicados como **SavedModel**.
-- **Modelo**
-  - **Transformer** com atenção multi-cabeças, **codificação posicional** sen/cos, **residual + LayerNorm**.
-- **Treinamento**
-  - **Adam** com **CustomSchedule** (warmup + decaimento ~1/√t).
-  - **Máscaras**: padding e look-ahead.
-  - **Checkpoints** periódicos.
-- **Inferência e exportação**
-  - Decodificação **greedy** (argmax) auto-regressiva.
-  - Exportei um **SavedModel** (`translator/`) pronto para servir.
+-------------------------------------------------------------------------------
 
-Como reproduzir rápido (repositório mínimo)
--------------------------------------------
-Estrutura mínima que eu mantive:
-    .
-    ├── README.md  ← este arquivo
-    ├── requirements.txt
-    └── notebooks/
-        └── tutorial_transformer.ipynb  ← fluxo do tutorial
+Objetivo e dataset
 
-Passos (Linux/Mac):
-    python -m venv .venv && source .venv/bin/activate
-    pip install -r requirements.txt
-    # abrir e executar: notebooks/tutorial_transformer.ipynb
+A meta foi executar o tutorial com reprodutibilidade (ambiente, versões e passos), medir desempenho (tempo por época, tempo total) e uma métrica de qualidade mínima (SacreBLEU em amostra), além de documentar o que funcionou, o que exigiu cuidado e como evoluir o baseline.
 
-Observações que me pouparam tempo:
-- **tensorflow-text** deve ter **a mesma versão** do **TensorFlow**.
-- Eu **não versiono** `checkpoints/` nem `translator/` (SavedModel) — uso .gitignore.
+Dataset utilizado: ted_hrlr_translate/pt_to_en via TensorFlow Datasets (TFDS). Uso acadêmico/experimental conforme os termos do TFDS.
 
-Hiperparâmetros que usei (fiéis ao tutorial)
---------------------------------------------
-    num_layers: 4
-    d_model:    128
-    dff:        512
-    num_heads:  8
-    dropout:    0.1
-    optimizer:  Adam + CustomSchedule
-    decoding:   greedy
+-------------------------------------------------------------------------------
 
-Resultados que obtive (GPU)
----------------------------
-Treinei em uma **GPU T4**. Abaixo, os números reais medidos a partir dos meus logs (20 épocas):
+Abordagem adotada
 
-    Tempo/época    ≈ 45–46 s   (época 1 ≈ 58.85 s por causa do “warm-up” do grafo)
-    Loss           6.7021  →  1.4533
-    Acc (masc.)    0.1139  →  0.6799
+O projeto parte do tutorial oficial, mas toma alguns cuidados práticos. Primeiro, as versões de TensorFlow e tensorflow-text foram pareadas 1:1 para garantir que os tokenizers em SavedModel carreguem sem falhas de operadores. Em seguida, montei um pipeline tf.data com shuffle, batch usando drop_remainder, tokenização subword PT/EN com corte por MAX_TOKENS e prefetch, mantendo shapes estáveis para evitar retracing e garantir throughput consistente.
 
-Tabela (pontos de controle que registrei):
-    Época |   Loss  | Acc(másc.) | Tempo/época
-    ------+---------+------------+-------------
-       1  | 6.7021  |   0.1139   | 58.85 s
-       5  | 3.4583  |   0.4029   | 46.04 s
-      10  | 2.1060  |   0.5825   | 45.06 s
-      15  | 1.6786  |   0.6446   | 46.56 s
-      20  | 1.4533  |   0.6799   | 45.84 s
+O modelo segue a arquitetura Encoder–Decoder com atenção multi-cabeças, codificação posicional sen/cos, conexões residuais e LayerNorm. Em GPU, habilitei mixed precision e mantive a projeção de logits em float32 para estabilidade. A comparação de hardware foi feita com um protocolo curto e mensurável: na GPU (3 épocas, mixed_float16) e na CPU (1 época, float32), cronometrando cada época, registrando perdas e calculando SacreBLEU em n=100 sentenças de validação (decodificação greedy). Por fim, gerei artefatos para auditoria: curvas de loss, throughput (tokens/s) em forward, histograma de comprimentos de tokens, um mapa de atenção usando os pesos do decoder, amostras qualitativas em CSV e métricas consolidadas em JSON.
 
-Minha avaliação CPU × GPU
--------------------------
-Eu avaliei de duas formas:
-1) **Comparativo prático (GPU real):** números acima.
-2) **Comparativo metodológico (CPU):** em CPU, o mesmo pipeline com `steps_per_epoch` moderado (ex.: 40) leva **várias vezes mais tempo**. Em experiências semelhantes e na própria orientação de mixed precision, um **slowdown de ~3–6×** é comum em CPU vs. uma T4. Portanto:
-   - **GPU (T4)**: ~45–46 s por época (setup padrão do tutorial).
-   - **CPU (estimativa fundamentada)**: da ordem de **2.5–5 min por época** no mesmo setup.
-   - Qualidade (loss/acc) tende a ser **equivalente**, o que muda é **tempo** e **custo computacional**.
+-------------------------------------------------------------------------------
 
-Nota: Eu optei por **não rodar o treino completo no CPU** por tempo/custo. Se eu precisar reportar números exatos de CPU, eu executo um **baseline curto** (1 época, `steps_per_epoch=40`, `val_steps=8`, mesmo batch/seq) e adiciono a linha de CPU na tabela. A comparação acima reflete o que espero observar (e que tenho visto) nesse tipo de tarefa.
+Ambiente e dependências
 
-Exemplos de tradução (do próprio fluxo do tutorial)
----------------------------------------------------
-Entrada (PT):  este é um problema que temos que resolver .
-Predição (EN): this is a problem that we have to solve .
-Ground Truth:  this is a problem we have to solve .
+Python 3.11 (Colab)
+TensorFlow 2.19.0
+tensorflow-text 2.19.0
+Demais pacotes: tensorflow-datasets 4.9.6, sacrebleu 2.4.1, matplotlib 3.9.0, numpy 1.26.4, pandas 2.2.2, ipykernel 6.29.5, jupyterlab 4.2.4
 
-Entrada (PT):  os meus vizinhos ouviram sobre esta ideia .
-Predição (EN): my neighbors heard about this idea .
-Ground Truth:  and my neighboring homes heard about this idea .
+requirements.txt (utilizado)
+tensorflow==2.19.0
+tensorflow-text==2.19.0
+tensorflow-datasets==4.9.6
+sacrebleu==2.4.1
+matplotlib==3.9.0
+numpy==1.26.4
+pandas==2.2.2
+ipykernel==6.29.5
+jupyterlab==4.2.4
 
-Entrada (PT):  vou então muito rapidamente partilhar convosco algumas histórias ...
-Predição (EN): so i ' m going to share with you a few stories ...
-Ground Truth:  so i 'll just share with you some stories ...
+Observações de compatibilidade
+- tensorflow-text deve casar exatamente com a versão do TensorFlow; caso contrário, o SavedModel dos tokenizers não carrega (ops não registrados).
+- Em GPU local, alinhar versões de CUDA/cuDNN com a matriz do TF. No Colab, isso já vem configurado.
 
-Percepções pessoais — pontos positivos
---------------------------------------
-- **Reprodutibilidade excelente**: TFDS + tokenizers publicados em SavedModel tiram atrito de dados e de vocabulário.
-- **Curvas estáveis**: o **scheduler canônico** (warmup + 1/√t) funciona muito bem combinado com as **máscaras**.
-- **Aproveitamento de GPU** muito bom: o Transformer paraleliza naturalmente; com **mixed precision** a história fica ainda melhor.
-- **Exportação limpa**: `tf.saved_model.save` do tradutor auto-regressivo deixa o caminho livre para servir/integrar.
+-------------------------------------------------------------------------------
 
-Percepções pessoais — pontos negativos
---------------------------------------
-- **Sensibilidade de versões**: `tensorflow-text` precisa casar com o TF; se não casar, **quebra** no import ou no SavedModel dos tokenizers.
-- **Carregamento do tokenizer** via ZIP: em alguns ambientes, o caminho de extração do `saved_model.pb` precisa ser verificado manualmente.
-- **Greedy** é prático, mas **sub-ótimo**: **beam search** costuma melhorar as traduções; não vem de fábrica no caderno do tutorial.
-- **Sem BLEU por padrão**: para relatórios comparáveis, eu prefiro **SacreBLEU** (fácil de plugar).
+Como executar (CPU e GPU)
 
-Notas rápidas da análise (extra)
---------------------------------
-    Tópico/Surpresa                | Minha leitura                        | O que eu faria
-    -------------------------------+--------------------------------------+------------------------------------------
-    Acurácia “mascarada” sobe bem  | Scheduler + máscaras estabilizam     | Medir BLEU p/ ver ganho “de verdade”
-    Tempo/época quase constante    | Pipeline tf.data está eficiente      | Registrar tempo/step p/ comparar HW
-    Traduções com OOVs razoáveis   | Subpalavras ajudam transliteração    | Beam search p/ escolhas menos “gulosas”
-    Diferença CPU×GPU marcante     | Atenção paralelizável + T4 ajuda     | Mixed precision sempre que suportado
+Estrutura do repositório
+.
+├── README.md
+├── requirements.txt
+└── notebooks/
+    └── tutorial_transformer.ipynb
 
-O que eu faria em seguida (se for evoluir)
-------------------------------------------
-- **SacreBLEU** em validação/teste para quantificar qualidade.
-- **Beam search** na inferência para melhorar fluência/adequação.
-- **Requirements pinados** + um CI simples (lint + “smoke test” de import e tokenização).
-- Pequenas ablações (ex.: `num_layers=2`, `d_model=256`) para custo/benefício.
+Passos (Linux/Mac)
+1) python -m venv .venv && source .venv/bin/activate
+2) pip install -r requirements.txt
+3) Abrir notebooks/tutorial_transformer.ipynb e executar as células em sequência.
 
+Para GPU no Colab
+- Runtime → Change runtime type → GPU.
+- Mixed precision ativada automaticamente quando há GPU.
+- Seeds fixadas para melhor reprodutibilidade (pequenas variações entre hardwares são esperadas).
 
----------------------------------------------------
-Neste repositório fiz então:
+Boas práticas aplicadas
+- drop_remainder=True no batch para manter shapes fixos (menos retracing).
+- Reconstrução limpa do modelo ao alternar GPU↔CPU, evitando conflito de variáveis alocadas em device diferente.
+
+-------------------------------------------------------------------------------
+
+Parâmetros e escolhas
+
+A execução usou uma configuração rápida para produzir números em poucos minutos, preservando a lógica do tutorial.
+
+Tabela de parâmetros
+| Parâmetro         | Tutorial (referência) | Execução rápida (usada) | Observação                                               |
+|-------------------|-----------------------|--------------------------|----------------------------------------------------------|
+| num_layers        | 4                     | 1                        | Reduz custo por época                                    |
+| d_model           | 128                   | 64                       | Menos parâmetros e memória                               |
+| dff               | 512                   | 128                      | Proporcional a d_model                                   |
+| num_heads         | 8                     | 4                        | d_model/heads = 16, divisão limpa                        |
+| dropout           | 0.1                   | 0.1                      | Igual ao tutorial                                        |
+| optimizer         | Adam + CustomSchedule | Adam + CustomSchedule    | Warmup + 1/√t                                            |
+| MAX_TOKENS        | 64–128 (estudo)       | 32                       | Rápido; histograma mostra truncamento frequente          |
+| batch_size        | 64 (depende do HW)    | 32                       | Cabe sem gargalos no Colab                               |
+| decoding          | greedy                | greedy                   | Baseline comparável                                      |
+
+-------------------------------------------------------------------------------
+
+Resultados (CPU × GPU)
+
+Protocolo padronizado: batch 32, MAX_TOKENS 32, steps/época 40 e val_steps 8; SacreBLEU em n=100 (tokenize="none", force=True); GPU com mixed_float16; CPU em float32.
+
+Tabela comparativa
+| Hardware | Épocas | Steps/época | Tempo/época (média) | Tempo total | Loss final | SacreBLEU (n) |
+|---------:|:------:|:-----------:|:--------------------:|:-----------:|-----------:|:-------------:|
+| GPU      | 3      | 40          | 1.55s               | 5.65s       | 7.5865     | 0.1040 (100)  |
+| CPU      | 1      | 40          | 11.21s              | 20.95s      | 8.7602     | 0.1090 (100)  |
+
+Leitura dos resultados
+
+A GPU foi cerca de 7–8× mais rápida por época, como esperado para Transformer com atenção paralelizável e mixed precision. Mesmo com poucas épocas, a perda na GPU já cai visivelmente em relação ao aquecimento mínimo na CPU. O BLEU permanece modesto porque a avaliação foi feita com n pequeno e greedy; ele tende a subir com mais épocas, MAX_TOKENS maior e um decodificador mais forte (por exemplo, beam search).
+
+-------------------------------------------------------------------------------
+
+Gráficos e artefatos
+
+Distribuição de comprimentos de tokens (PT/EN) em amostra
+![Comprimentos de tokens](assets/comprimentos_tokens_hist.png)
+
+Mapa de atenção do modelo (média das cabeças na última camada do decoder)
+![Mapa de atenção](assets/atencao_modelo.png)
+
+Amostras qualitativas PT → EN
+assets/amostras_traducoes.csv
+
+Pacotes de métricas (auditoria e rastreabilidade)
+assets/results_gpu.json  
+assets/results_cpu.json  
+assets/cpu_gpu_table.txt  
+assets/metrics.json  
+assets/throughput_forward.json  
+assets/backprop_microbench.json
+
+-------------------------------------------------------------------------------
+
+Percepções pessoais
+
+O que funcionou bem
+
+A reprodutibilidade ficou sólida: usar TFDS e tokenizers em SavedModel eliminou a etapa frágil de “construir vocabulário” e tirou atrito na preparação dos dados. O pareamento das versões TF/tensorflow-text resolveu, de início, erros de operador que costumam interromper o fluxo. O scheduler com warmup e decaimento 1/√t estabilizou a perda mesmo no regime curto, e o uso de mixed precision em GPU trouxe ganhos diretos de throughput. Ter tempos por época, gráficos e JSONs facilitou revisar a execução e montar a comparação de hardware sem depender de prints dispersos.
+
+O que exigiu cuidado
+
+Versões desalinhadas entre TF e tensorflow-text impedem o carregamento dos tokenizers; manter versões casadas foi essencial. Ao alternar GPU↔CPU, reconstruir o modelo do zero evitou conflitos de variáveis alocadas no device errado. Para avaliação rápida, greedy resolve, mas limita a fluência; vale planejar beam search. Por fim, MAX_TOKENS=32 acelera, mas trunca frases com frequência — o histograma deixa isso explícito e justifica aumentar o limite nas próximas rodadas.
+
+Trade-offs e gargalos
+
+Com poucas épocas é possível comparar hardware de forma justa, mas o BLEU segue modesto; qualidade real aparece com treino mais longo e/ou decodificação melhor. Aumentar d_model e MAX_TOKENS melhora capacidade, porém eleva custo e memória. No input pipeline, manter shapes fixos (drop_remainder) e prefetch ajudou a sustentar o ritmo de passos e reduzir retracing.
+
+-------------------------------------------------------------------------------
+
+O que foi além do esperado
+
+Reprodutibilidade prática: além de listar dependências, há requirements.txt e observações de compatibilidade (TF ↔ tensorflow-text), além de procedimentos para alternar hardware com segurança (recriação do modelo por device).
+
+Avaliação objetiva e auditável: além de tempo e perda, inclui SacreBLEU em amostra; os artefatos (curvas, JSONs, CSV de amostras) permitem refazer leituras e checar números sem reexecutar tudo.
+
+Instrumentação útil: gráficos adicionais (throughput e histograma de comprimentos) ajudam a interpretar gargalos de contexto e ritmo de execução; o mapa de atenção foi extraído dos pesos do decoder, e não apenas de uma MHA diagnóstica solta.
+
+Padronização da comparação: protocolo CPU×GPU com batch, MAX_TOKENS, steps/época e val_steps alinhados, além de políticas numéricas (mixed_float16 na GPU e float32 na CPU) explicitadas.
+
+-------------------------------------------------------------------------------
+
+Próximos passos
+
+Beam search (k=4) na inferência e comparação direta com greedy nos mesmos inputs.  
+Aumentar MAX_TOKENS para 48–64 e treinar por mais 3–5 épocas na GPU; registrar deltas em BLEU e perda.  
+Ativar XLA em GPU juntamente com mixed precision e relatar ganhos de throughput.  
+Ablações leves (num_layers=2, d_model=256) para custo/benefício.  
+Explorar KerasNLP para tokenização/camadas utilitárias e um pipeline mais integrado.  
+Usar early stopping e checkpointing baseado em val_loss; avaliar BLEU no dev/test completo.
+
+-------------------------------------------------------------------------------
+
+Versionamento (evidências no Git)
 
 1) chore(data): TFDS + tokenizers (SavedModel) + pipeline tf.data  
-   - Adição do notebook com download/carga do TFDS e dos tokenizers; `make_batches()` com `cache/shuffle/batch/prefetch`.
+   - Download/carga do dataset, make_batches com shuffle/batch/prefetch, .gitignore para artefatos volumosos.
 
-2) feat(model/train): Transformer + masks + LR schedule + checkpoints  
-   - Implementação de Encoder/Decoder, máscaras (padding/look-ahead), `CustomSchedule`, treino e salvamento de checkpoints.
+2) feat(model/train): Transformer + máscaras + scheduler + callbacks de tempo  
+   - Encoder/Decoder, perdas e acurácia mascaradas, CustomSchedule, medição de tempo por época e salvamento de métricas.
 
-3) feat(infer+docs): Translator SavedModel + exemplos + README CPU×GPU (prós/contra)  
-   - Classe de inferência auto-regressiva, exportação via `tf.saved_model.save`, exemplos de tradução e este README completo.
+3) feat(infer+docs): Inferência + gráficos + README com CPU×GPU  
+   - Decodificação greedy, amostras qualitativas, imagens e documentação dos resultados comparativos.
 
+-------------------------------------------------------------------------------
 
+Referências
 
-Concluindo
-----------
-Eu executei e analisei o **tutorial de Transformer do TensorFlow** para PT→EN, documentei **resultados reais em GPU**, comparei **CPU×GPU** de forma fundamentada, e registrei **prós/contra** com base na minha experiência ao reproduzir o caderno. Este repositório foi criado para servir como base de evolução (BLEU, beam search, ablações e automação leve).
+Tutorial TF Transformer (PT-BR): https://www.tensorflow.org/text/tutorials/transformer?hl=pt-br  
+Vaswani et al. (2017). Attention Is All You Need.
+
+Observação final
+
+Este README acompanha um notebook que reproduz o tutorial e apresenta uma comparação objetiva entre CPU e GPU. Os artefatos em assets/ permitem auditar tempos, curvas, atenção e amostras. A partir deste baseline, os próximos passos (beam search, mais épocas, MAX_TOKENS maior e ablações) tendem a elevar a qualidade de tradução de forma mensurável.
