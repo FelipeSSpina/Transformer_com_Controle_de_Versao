@@ -1,0 +1,28 @@
+{
+  "label": "gpu",
+  "policy": "mixed_float16",
+  "device_info": {
+    "tf_version": "2.19.0",
+    "gpus": [
+      "/physical_device:GPU:0"
+    ],
+    "has_gpu": true
+  },
+  "epochs": 3,
+  "steps_per_epoch": 40,
+  "val_steps": 8,
+  "epoch_times_sec": [
+    1.9461296660001608,
+    1.833115220000309,
+    0.8607093420000638
+  ],
+  "time_total_sec": 5.65025423599991,
+  "time_per_epoch_sec_mean": 1.546651409333511,
+  "loss_final": 7.5864739418029785,
+  "val_loss_final": 7.081899166107178,
+  "sacrebleu_val_n": 100,
+  "sacrebleu_val_score": 0.10400940507428201,
+  "batch_size": 32,
+  "max_tokens": 32,
+  "model_params": 1634146
+}

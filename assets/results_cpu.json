@@ -1,0 +1,26 @@
+{
+  "label": "cpu",
+  "policy": "float32",
+  "device_info": {
+    "tf_version": "2.19.0",
+    "gpus": [
+      "/physical_device:GPU:0"
+    ],
+    "has_gpu": true
+  },
+  "epochs": 1,
+  "steps_per_epoch": 40,
+  "val_steps": 8,
+  "epoch_times_sec": [
+    11.20896098799949
+  ],
+  "time_total_sec": 20.95424934699986,
+  "time_per_epoch_sec_mean": 11.20896098799949,
+  "loss_final": 8.76016902923584,
+  "val_loss_final": 8.590252876281738,
+  "sacrebleu_val_n": 100,
+  "sacrebleu_val_score": 0.10903909203247611,
+  "batch_size": 32,
+  "max_tokens": 32,
+  "model_params": 1634146
+}
