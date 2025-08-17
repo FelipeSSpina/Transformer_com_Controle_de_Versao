@@ -1,0 +1,44 @@
+FILE: requirements.txt
+tensorflow==2.19.0
+tensorflow-text==2.19.0
+tensorflow-datasets==4.9.6
+sacrebleu==2.4.1
+matplotlib==3.9.0
+numpy==1.26.4
+pandas==2.2.2
+ipykernel==6.29.5
+jupyterlab==4.2.4
+
+FILE: .gitignore
+# artefatos de treino/modelo
+translator/
+checkpoints/
+assets_bundle.zip
+
+# diretórios/arquivos de saída grandes
+assets/*.zip
+assets/*.tar
+*.h5
+*.pb
+
+# notebooks e caches
+.ipynb_checkpoints/
+*.ipynb_convert/
+*.nbconvert.ipynb
+
+# python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# ambientes locais
+.venv/
+.env/
+.conda/
+*.egg-info/
+
+# editores/so
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
