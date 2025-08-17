@@ -1,0 +1,8 @@
+- assets/loss_por_epoca.png — curvas de treinamento (loss/época)
+- assets/throughput_tokens_por_epoca.png — throughput (tokens/s) estimado (forward)
+- assets/comprimentos_tokens_hist.png — distribuição de comprimentos de tokens (PT/EN)
+- assets/atencao_modelo.png — mapa de atenção (modelo)
+- assets/amostras_traducoes.csv — amostras qualitativas PT → EN
+- assets/metrics.json — hiperparâmetros e métricas resumidas
+- assets/throughput_forward.json — detalhes do throughput forward
+- assets/backprop_microbench.json — tempo de um passo de backprop e tokens/s

@@ -1,0 +1,12 @@
+{
+  "trainable_params": 1634146,
+  "d_model": 64,
+  "num_layers": 1,
+  "num_heads": 4,
+  "batch_size": 32,
+  "max_tokens": 32,
+  "loss_final": 8.77843952178955,
+  "val_loss_final": 8.612839698791504,
+  "throughput_forward_tokens_per_sec": 7260.612816484477,
+  "tf_version": "2.19.0"
+}

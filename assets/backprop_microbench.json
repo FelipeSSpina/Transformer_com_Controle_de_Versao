@@ -1,0 +1,5 @@
+{
+  "train_one_step_seconds": 0.024008882999623893,
+  "batch_tokens": 1024,
+  "tokens_per_sec_backprop": 42650.88051018622
+}
